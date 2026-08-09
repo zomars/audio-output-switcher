@@ -20,11 +20,14 @@ const setSink = callable<[string], SwitchResult>("set_sink");
 
 // Adds an icon to the QAM tab rail, ahead of Decky's own tab.
 //
-// This is OFF by default because it reaches into `window.DeckyPluginLoader`,
-// which is Decky-internal and not part of the plugin API. The tab id below is
-// hardcoded, so two plugins doing this would collide. Flip to true only for a
-// personal build. See the README section "QAM tab rail".
-const ENABLE_QAM_TAB = false;
+// Build-time flag, off unless QAM_TAB=1 is set. It is off by default because it
+// reaches into `window.DeckyPluginLoader`, which is Decky-internal and not part
+// of the plugin API, and because the tab id below is hardcoded, so two plugins
+// doing this would collide. With the flag false, rollup eliminates all of the
+// code below, so the shipped bundle carries no reference to Decky internals.
+// See the README section "QAM tab rail".
+declare const __ENABLE_QAM_TAB__: boolean;
+const ENABLE_QAM_TAB = __ENABLE_QAM_TAB__;
 const TAB_ID = 998;
 
 function SpeakerIcon() {

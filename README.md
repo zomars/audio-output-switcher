@@ -33,7 +33,9 @@ If Decky runs the backend as root, commands are re-run as the `deck` user with `
 
 ## QAM tab rail
 
-The plugin can add its own icon to the Quick Access Menu tab rail, ahead of Decky's, so the device list is one tap away. **This is disabled by default** (`ENABLE_QAM_TAB` in `src/index.tsx`).
+The plugin can add its own icon to the Quick Access Menu tab rail, ahead of Decky's, so the device list is one tap away. **This is disabled by default** — build it with `pnpm run build:qam` instead of `pnpm run build`.
+
+Because the flag resolves at build time, the default build has the entire code path eliminated by rollup: the shipped bundle contains no reference to Decky internals at all.
 
 It is off because it reaches into `window.DeckyPluginLoader.tabsHook`, which is Decky-internal and not part of the plugin API:
 
@@ -41,16 +43,17 @@ It is off because it reaches into `window.DeckyPluginLoader.tabsHook`, which is 
 - Registering mid-session duplicates the rail, because `render()` only bails early when its decky-tab count matches `tabs.length` — it settles after a `plugin_loader` restart
 - A Decky Loader update can move the internal without warning
 
-All access is guarded and wrapped, so if any of that happens the tab silently does not appear and the normal Decky-panel section keeps working. Flip the constant to `true` for a personal build if you accept those caveats.
+All access is guarded and wrapped, so if any of that happens the tab silently does not appear and the normal Decky-panel section keeps working. Use `build:qam` for a personal build if you accept those caveats.
 
 ## Building
 
 ```bash
 pnpm i
-pnpm run build
+pnpm run build       # store variant
+pnpm run build:qam   # variant with the QAM tab rail icon
 ```
 
-Outputs `dist/index.js`.
+Both output `dist/index.js`. The committed `dist/` is the store variant, so if you build `build:qam` for personal use, run `pnpm run build` again before committing.
 
 ## License
 
