@@ -6,6 +6,6 @@
   "publish": {
     "tags": ["audio", "utility"],
     "description": "Switch the default audio output device from the Quick Access Menu. Lists every available output, switches with one tap, and moves already-playing streams over so audio follows immediately.",
-    "image": ""
+    "image": "https://raw.githubusercontent.com/zomars/audio-output-switcher/main/assets/panel.png"
   }
 }

@@ -2,6 +2,8 @@
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin that switches the default audio output device from the Quick Access Menu.
 
+![The plugin panel, listing available outputs with the active one marked](assets/panel.png)
+
 SteamOS gamemode has no output-device picker on every device — on a Steam Machine driving a TV, the QAM audio section is only a CEC volume slider. Changing outputs otherwise means a trip to desktop mode. This plugin lists every available sink and switches with one tap.
 
 ## Features
