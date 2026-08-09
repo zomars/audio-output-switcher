@@ -1,0 +1,23 @@
+{
+  "name": "audio-output-switcher",
+  "version": "1.0.0",
+  "description": "Switch the default audio output device from the Quick Access Menu.",
+  "type": "module",
+  "scripts": {
+    "build": "shx rm -rf dist && rollup -c",
+    "watch": "rollup -c -w"
+  },
+  "author": "zomars",
+  "license": "MIT",
+  "devDependencies": {
+    "@decky/rollup": "^1.0.1",
+    "@decky/ui": "^4.7.2",
+    "@types/react": "18.3.3",
+    "rollup": "^4.22.5",
+    "shx": "^0.3.4",
+    "typescript": "^5.6.2"
+  },
+  "dependencies": {
+    "@decky/api": "^1.1.2"
+  }
+}
