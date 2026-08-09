@@ -70,16 +70,12 @@ function Content() {
     };
     return (SP_JSX.jsxs(DFL.PanelSection, { title: "Output Device", children: [sinks.map((sink) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy || sink.active, onClick: () => pick(sink), children: (sink.active ? "●  " : "") + sink.label }) }, sink.name))), sinks.length === 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6 }, children: "No outputs found." }) })), error !== "" && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { color: "#e05c5c" }, children: error }) }))] }));
 }
-var index = definePlugin(() => {
-    return {
-        name: "Audio Output Switcher",
-        title: SP_JSX.jsx("div", { className: DFL.staticClasses.Title, children: "Audio Output" }),
-        content: SP_JSX.jsx(Content, {}),
-        icon: SP_JSX.jsx(SpeakerIcon, {}),
-        onDismount() {
-        },
-    };
-});
+var index = definePlugin(() => ({
+    name: "Audio Output Switcher",
+    title: SP_JSX.jsx("div", { className: DFL.staticClasses.Title, children: "Audio Output" }),
+    content: SP_JSX.jsx(Content, {}),
+    icon: SP_JSX.jsx(SpeakerIcon, {}),
+}));
 
 export { index as default };
 //# sourceMappingURL=index.js.map

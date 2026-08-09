@@ -18,18 +18,6 @@ interface SwitchResult {
 const listSinks = callable<[], Sink[]>("list_sinks");
 const setSink = callable<[string], SwitchResult>("set_sink");
 
-// Adds an icon to the QAM tab rail, ahead of Decky's own tab.
-//
-// Build-time flag, off unless QAM_TAB=1 is set. It is off by default because it
-// reaches into `window.DeckyPluginLoader`, which is Decky-internal and not part
-// of the plugin API, and because the tab id below is hardcoded, so two plugins
-// doing this would collide. With the flag false, rollup eliminates all of the
-// code below, so the shipped bundle carries no reference to Decky internals.
-// See the README section "QAM tab rail".
-declare const __ENABLE_QAM_TAB__: boolean;
-const ENABLE_QAM_TAB = __ENABLE_QAM_TAB__;
-const TAB_ID = 998;
-
 function SpeakerIcon() {
   return (
     <svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor">
@@ -105,55 +93,9 @@ function Content() {
   );
 }
 
-function tabsHook(): any | null {
-  // @ts-ignore - Decky-internal, deliberately not in the public API surface.
-  const loader = window.DeckyPluginLoader;
-  const hook = loader?.tabsHook;
-  if (!hook || !Array.isArray(hook.tabs) || typeof hook.removeById !== "function") {
-    return null;
-  }
-  return hook;
-}
-
-function registerTab() {
-  try {
-    const hook = tabsHook();
-    if (!hook) {
-      console.warn("[audio-output-switcher] tabsHook unavailable, QAM tab skipped");
-      return;
-    }
-    // Drop any stale copy first so a plugin reload cannot double-register.
-    hook.removeById(TAB_ID);
-    // unshift, not add(): render() pushes in array order, and add() would land
-    // us after Decky's own tab (id 999) rather than before it.
-    hook.tabs.unshift({
-      id: TAB_ID,
-      title: <div>Audio Output</div>,
-      icon: <SpeakerIcon />,
-      content: <Content />,
-    });
-  } catch (e) {
-    console.error("[audio-output-switcher] could not register QAM tab:", e);
-  }
-}
-
-function unregisterTab() {
-  try {
-    tabsHook()?.removeById(TAB_ID);
-  } catch (e) {
-    console.error("[audio-output-switcher] could not remove QAM tab:", e);
-  }
-}
-
-export default definePlugin(() => {
-  if (ENABLE_QAM_TAB) registerTab();
-  return {
-    name: "Audio Output Switcher",
-    title: <div className={staticClasses.Title}>Audio Output</div>,
-    content: <Content />,
-    icon: <SpeakerIcon />,
-    onDismount() {
-      if (ENABLE_QAM_TAB) unregisterTab();
-    },
-  };
-});
+export default definePlugin(() => ({
+  name: "Audio Output Switcher",
+  title: <div className={staticClasses.Title}>Audio Output</div>,
+  content: <Content />,
+  icon: <SpeakerIcon />,
+}));
