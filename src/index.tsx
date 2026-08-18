@@ -95,7 +95,7 @@ function Content() {
 
 export default definePlugin(() => ({
   name: "Audio Output Switcher",
-  title: <div className={staticClasses.Title}>Audio Output</div>,
+  titleView: <div className={staticClasses.Title}>Audio Output</div>,
   content: <Content />,
   icon: <SpeakerIcon />,
 }));

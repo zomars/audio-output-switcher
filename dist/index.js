@@ -72,7 +72,7 @@ function Content() {
 }
 var index = definePlugin(() => ({
     name: "Audio Output Switcher",
-    title: SP_JSX.jsx("div", { className: DFL.staticClasses.Title, children: "Audio Output" }),
+    titleView: SP_JSX.jsx("div", { className: DFL.staticClasses.Title, children: "Audio Output" }),
     content: SP_JSX.jsx(Content, {}),
     icon: SP_JSX.jsx(SpeakerIcon, {}),
 }));

@@ -1,47 +1,70 @@
+import asyncio
 import json
 import os
-import subprocess
+import pwd
 
 import decky
-
-RUNTIME_DIR = "/run/user/1000"
-DECK_USER = "deck"
 
 # Sinks we never want to show as a pickable destination.
 HIDDEN_PREFIXES = ("auto_null",)
 
+# pactl is normally instant; this only exists so a wedged PipeWire can't hang the panel.
+TIMEOUT = 6
 
-def _run(args, timeout=6):
-    """Run a pactl command inside the deck user's PipeWire session.
 
-    Decky may run the backend as root, in which case pactl has no route to the
-    user session unless we drop back down to the deck user with its runtime dir.
+def _session_env():
+    """Environment that points pactl at the user's PipeWire session.
+
+    The session lives under that user's runtime dir, so derive it from the
+    account Decky is running for instead of assuming uid 1000.
     """
+    try:
+        uid = pwd.getpwnam(decky.DECKY_USER).pw_uid
+    except KeyError:
+        uid = os.getuid()
+
+    runtime_dir = f"/run/user/{uid}"
     env = dict(os.environ)
-    env["XDG_RUNTIME_DIR"] = RUNTIME_DIR
-    env["PULSE_RUNTIME_PATH"] = os.path.join(RUNTIME_DIR, "pulse")
-
-    cmd = list(args)
-    if os.geteuid() == 0:
-        cmd = [
-            "sudo", "-n", "-u", DECK_USER,
-            "env",
-            f"XDG_RUNTIME_DIR={RUNTIME_DIR}",
-            f"PULSE_RUNTIME_PATH={RUNTIME_DIR}/pulse",
-        ] + list(args)
-
-    return subprocess.run(
-        cmd, env=env, capture_output=True, text=True, timeout=timeout
-    )
+    env["XDG_RUNTIME_DIR"] = runtime_dir
+    env["PULSE_RUNTIME_PATH"] = os.path.join(runtime_dir, "pulse")
+    return env
 
 
-def _pactl_json(args):
-    proc = _run(["pactl", "-f", "json"] + args)
-    if proc.returncode != 0:
-        decky.logger.error("pactl %s failed: %s", args, proc.stderr.strip())
+async def _run(args):
+    """Run a pactl command, returning (returncode, stdout, stderr).
+
+    Never raises: a failure to spawn or a timeout comes back as a non-zero code
+    so callers can keep treating this as an ordinary command result.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_session_env(),
+        )
+    except (OSError, ValueError) as exc:
+        decky.logger.error("could not start %s: %s", args, exc)
+        return 1, "", str(exc)
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT)
+    except asyncio.TimeoutError:
+        decky.logger.error("%s timed out after %ss", args, TIMEOUT)
+        proc.kill()
+        await proc.wait()
+        return 1, "", f"timed out after {TIMEOUT}s"
+
+    return proc.returncode, stdout.decode().strip(), stderr.decode().strip()
+
+
+async def _pactl_json(args):
+    code, stdout, stderr = await _run(["pactl", "-f", "json"] + args)
+    if code != 0:
+        decky.logger.error("pactl %s failed: %s", args, stderr)
         return []
     try:
-        return json.loads(proc.stdout or "[]")
+        return json.loads(stdout or "[]")
     except json.JSONDecodeError as exc:
         decky.logger.error("could not parse pactl output: %s", exc)
         return []
@@ -60,11 +83,11 @@ def _label_for(sink):
 class Plugin:
     async def list_sinks(self):
         """Return every available output, newest state included."""
-        default_proc = _run(["pactl", "get-default-sink"])
-        default_name = default_proc.stdout.strip() if default_proc.returncode == 0 else ""
+        code, stdout, _ = await _run(["pactl", "get-default-sink"])
+        default_name = stdout if code == 0 else ""
 
         sinks = []
-        for sink in _pactl_json(["list", "sinks"]):
+        for sink in await _pactl_json(["list", "sinks"]):
             name = sink.get("name") or ""
             if not name or name.startswith(HIDDEN_PREFIXES):
                 continue
@@ -83,25 +106,25 @@ class Plugin:
 
     async def set_sink(self, name: str):
         """Make `name` the default output and drag every playing stream with it."""
-        proc = _run(["pactl", "set-default-sink", name])
-        if proc.returncode != 0:
-            message = proc.stderr.strip() or "pactl refused the change"
+        code, _, stderr = await _run(["pactl", "set-default-sink", name])
+        if code != 0:
+            message = stderr or "pactl refused the change"
             decky.logger.error("set-default-sink %s failed: %s", name, message)
             return {"ok": False, "error": message}
 
         # set-default-sink only affects future streams; existing ones must be moved.
         moved = 0
-        for stream in _pactl_json(["list", "sink-inputs"]):
+        for stream in await _pactl_json(["list", "sink-inputs"]):
             index = stream.get("index")
             if index is None:
                 continue
-            move = _run(["pactl", "move-sink-input", str(index), name])
-            if move.returncode == 0:
+            move_code, _, move_err = await _run(
+                ["pactl", "move-sink-input", str(index), name]
+            )
+            if move_code == 0:
                 moved += 1
             else:
-                decky.logger.warning(
-                    "could not move stream %s: %s", index, move.stderr.strip()
-                )
+                decky.logger.warning("could not move stream %s: %s", index, move_err)
 
         decky.logger.info("switched output to %s (%s streams moved)", name, moved)
         return {"ok": True, "moved": moved}
