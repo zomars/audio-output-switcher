@@ -23,11 +23,50 @@ const definePlugin = (fn) => {
     };
 };
 
-const listSinks = callable("list_sinks");
-const setSink = callable("set_sink");
-const cycleSink = callable("cycle_sink");
 const getShortcut = callable("get_shortcut");
 const saveShortcut = callable("set_shortcut");
+// EAudioDirection.Output, read out of Steam's bundle.
+const OUTPUT = 1;
+const audioApi = () => window.SteamClient?.System?.Audio;
+/** Outputs as Steam sees them, active device included.
+ *
+ * Steam's list is narrower than PipeWire's on purpose: virtual sinks like
+ * steam-streaming-playback never appear, and they were never a destination a
+ * person meant to pick.
+ */
+async function readOutputs() {
+    const api = audioApi();
+    if (!api?.GetDevices)
+        throw new Error("SteamClient.System.Audio unavailable");
+    const state = await api.GetDevices();
+    const devices = (state?.vecDevices ?? [])
+        .filter((d) => d?.bHasOutput)
+        .sort((a, b) => a.sName.localeCompare(b.sName));
+    return {
+        devices,
+        activeId: state?.activeOutputDeviceId ?? -1,
+        overrideId: state?.overrideOutputDeviceId ?? -1,
+    };
+}
+/** Switch output. Steam changes the real PipeWire default and drags every
+ *  already-playing stream over, so nothing has to be moved by hand.
+ *  Fire-and-forget, the way Steam's own selector calls it. */
+function switchTo(id) {
+    audioApi()?.SetDefaultDeviceOverride(id, OUTPUT);
+}
+/** Drop the pin and follow whatever the system picks. */
+function followSystemDefault() {
+    audioApi()?.ClearDefaultDeviceOverride(OUTPUT);
+}
+async function cycleOutput() {
+    const { devices, activeId } = await readOutputs();
+    if (devices.length < 2)
+        return null;
+    const index = devices.findIndex((d) => d.id === activeId);
+    const next = devices[(index + 1) % devices.length];
+    switchTo(next.id);
+    return next;
+}
 // A single button would fire every time it is pressed for its normal purpose.
 const MIN_COMBO = 2;
 // EGamepadButton, read out of Steam's bundle. Unknown ids show as BTN<n>: capture
@@ -77,10 +116,10 @@ function drop(reg) {
 }
 async function fire() {
     try {
-        const result = await cycleSink();
+        const next = await cycleOutput();
         toaster.toast({
             title: "Audio Output",
-            body: result?.ok ? result.label || "Switched" : result?.error || "Switch failed.",
+            body: next ? next.sName : "Only one output available.",
         });
     }
     catch {
@@ -162,15 +201,14 @@ function SpeakerIcon() {
     return (SP_JSX.jsx("svg", { width: "1em", height: "1em", viewBox: "0 0 24 24", fill: "currentColor", children: SP_JSX.jsx("path", { d: "M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z" }) }));
 }
 function Content() {
-    const [sinks, setSinks] = SP_REACT.useState([]);
+    const [outputs, setOutputs] = SP_REACT.useState({ devices: [], activeId: -1, overrideId: -1 });
     const [busy, setBusy] = SP_REACT.useState(false);
     const [error, setError] = SP_REACT.useState("");
     const [shortcut, setShortcut] = SP_REACT.useState(config);
     const [capturing, setCapturing] = SP_REACT.useState(false);
     const refresh = async () => {
         try {
-            const result = await listSinks();
-            setSinks(Array.isArray(result) ? result : []);
+            setOutputs(await readOutputs());
             setError("");
         }
         catch {
@@ -180,10 +218,15 @@ function Content() {
     SP_REACT.useEffect(() => {
         refresh();
         setShortcut(config);
-        // Wireless dongles drop their sink when the headset powers off, so repoll
-        // while the panel is open rather than trusting the first read.
-        const timer = window.setInterval(refresh, 4000);
-        return () => window.clearInterval(timer);
+        // A wireless headset powering off is an event, not something to poll for:
+        // Steam says so directly, so the panel reacts at once instead of up to four
+        // seconds later.
+        const api = audioApi();
+        const subs = [
+            api?.RegisterForDeviceAdded?.(refresh),
+            api?.RegisterForDeviceRemoved?.(refresh),
+        ];
+        return () => subs.forEach(drop);
     }, []);
     const persist = async (next) => {
         config = next;
@@ -213,17 +256,14 @@ function Content() {
             persist({ ...config, buttons });
         };
     };
-    const pick = async (sink) => {
+    const pick = async (device) => {
         setBusy(true);
         try {
-            const result = await setSink(sink.name);
-            if (result?.ok) {
-                toaster.toast({ title: "Audio Output", body: sink.label });
-            }
-            else {
-                setError(result?.error || "Switch failed.");
-            }
-            await refresh();
+            switchTo(device.id);
+            toaster.toast({ title: "Audio Output", body: device.sName });
+            // SetDefaultDeviceOverride returns nothing to wait on -- Steam's own
+            // selector fires and forgets too -- so re-read once it has landed.
+            window.setTimeout(refresh, 400);
         }
         catch {
             setError("Switch failed.");
@@ -232,8 +272,18 @@ function Content() {
             setBusy(false);
         }
     };
+    const useSystemDefault = async () => {
+        setBusy(true);
+        try {
+            followSystemDefault();
+            window.setTimeout(refresh, 400);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
     const ready = shortcut.buttons.length >= MIN_COMBO;
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Output Device", children: [sinks.map((sink) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy || sink.active, onClick: () => pick(sink), children: (sink.active ? "●  " : "") + sink.label }) }, sink.name))), sinks.length === 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6 }, children: "No outputs found." }) })), error !== "" && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { color: "#e05c5c" }, children: error }) }))] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Shortcut", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Cycle output with a button combo", description: ready
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Output Device", children: [outputs.devices.map((device) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy || device.id === outputs.activeId, onClick: () => pick(device), children: (device.id === outputs.activeId ? "●  " : "") + device.sName }) }, device.id))), outputs.devices.length === 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6 }, children: "No outputs found." }) })), outputs.overrideId !== -1 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy, onClick: useSystemDefault, children: "Follow system default" }) })), error !== "" && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { color: "#e05c5c" }, children: error }) }))] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Shortcut", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Cycle output with a button combo", description: ready
                                 ? `Press ${comboLabel(shortcut.buttons)} together, anywhere, even in a game.`
                                 : `Set a combo of at least ${MIN_COMBO} buttons first.`, checked: shortcut.enabled, disabled: !ready, onChange: (value) => persist({ ...config, enabled: value }) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: capturing, onClick: startCapture, children: capturing ? "Hold the buttons, then let go" : comboLabel(shortcut.buttons) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6, fontSize: "0.8em" }, children: "The Steam and \u2026 buttons cannot be part of a combo \u2014 Steam keeps them to itself. The back paddles are the safest choice: most games leave them alone." }) })] })] }));
 }

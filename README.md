@@ -27,10 +27,26 @@ sudo systemctl restart plugin_loader
 
 ## How it works
 
-The backend (`main.py`) shells out to `pactl`:
+Switching goes through `SteamClient.System.Audio`, the same API Steam's own audio
+selector uses:
 
-- `pactl -f json list sinks` for the device list, `pactl get-default-sink` for current state
-- Switching runs `set-default-sink` **and then** `move-sink-input` for every live stream. `set-default-sink` alone only affects streams that start *afterward*, so without the move pass whatever is already playing keeps going out the old device.
+- `GetDevices()` returns the outputs plus `activeOutputDeviceId`. Steam's list is
+  narrower than PipeWire's, and deliberately so: virtual sinks like
+  `steam-streaming-playback` never appear, and they were never a destination
+  anyone meant to pick.
+- `SetDefaultDeviceOverride(id, 1)` switches. Measured on a device: it changes the
+  real PipeWire default — `pactl get-default-sink` follows it — **and drags every
+  already-playing stream across on its own**. An earlier version of this plugin
+  shelled out to `pactl set-default-sink` and then looped `move-sink-input` over
+  every live stream to get the same effect.
+- `ClearDefaultDeviceOverride(1)` unpins it again, which is what the panel's
+  "Follow system default" row does. It only appears while an override is set.
+- `RegisterForDeviceAdded` / `RegisterForDeviceRemoved` replace polling. A wireless
+  headset powering off is an event, so the panel reacts at once rather than up to
+  four seconds later.
+
+`main.py` therefore stores the shortcut binding and nothing else — the audio path
+has no Python in it at all.
 
 ### The shortcut
 
@@ -63,8 +79,6 @@ current builds reports a resume, so the plugin watches for the clock jump instea
 and re-subscribes.
 
 Nothing is intercepted: a game with L4 and R4 bound receives them too.
-
-If Decky runs the backend as root, commands are re-run as the `deck` user with `XDG_RUNTIME_DIR` set, so it can reach the user's PipeWire session either way.
 
 ## Building
 

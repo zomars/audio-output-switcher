@@ -8,18 +8,16 @@ import {
 import { callable, definePlugin, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 
-interface Sink {
-  name: string;
-  label: string;
-  active: boolean;
-  state: string;
+interface AudioDevice {
+  id: number;
+  sName: string;
+  bHasOutput: boolean;
 }
 
-interface SwitchResult {
-  ok: boolean;
-  moved?: number;
-  label?: string;
-  error?: string;
+interface Outputs {
+  devices: AudioDevice[];
+  activeId: number;
+  overrideId: number;
 }
 
 interface Shortcut {
@@ -27,11 +25,54 @@ interface Shortcut {
   buttons: number[];
 }
 
-const listSinks = callable<[], Sink[]>("list_sinks");
-const setSink = callable<[string], SwitchResult>("set_sink");
-const cycleSink = callable<[], SwitchResult>("cycle_sink");
 const getShortcut = callable<[], Shortcut>("get_shortcut");
 const saveShortcut = callable<[boolean, number[]], { ok: boolean }>("set_shortcut");
+
+// EAudioDirection.Output, read out of Steam's bundle.
+const OUTPUT = 1;
+
+const audioApi = () => (window as any).SteamClient?.System?.Audio;
+
+/** Outputs as Steam sees them, active device included.
+ *
+ * Steam's list is narrower than PipeWire's on purpose: virtual sinks like
+ * steam-streaming-playback never appear, and they were never a destination a
+ * person meant to pick.
+ */
+async function readOutputs(): Promise<Outputs> {
+  const api = audioApi();
+  if (!api?.GetDevices) throw new Error("SteamClient.System.Audio unavailable");
+  const state = await api.GetDevices();
+  const devices: AudioDevice[] = (state?.vecDevices ?? [])
+    .filter((d: AudioDevice) => d?.bHasOutput)
+    .sort((a: AudioDevice, b: AudioDevice) => a.sName.localeCompare(b.sName));
+  return {
+    devices,
+    activeId: state?.activeOutputDeviceId ?? -1,
+    overrideId: state?.overrideOutputDeviceId ?? -1,
+  };
+}
+
+/** Switch output. Steam changes the real PipeWire default and drags every
+ *  already-playing stream over, so nothing has to be moved by hand.
+ *  Fire-and-forget, the way Steam's own selector calls it. */
+function switchTo(id: number) {
+  audioApi()?.SetDefaultDeviceOverride(id, OUTPUT);
+}
+
+/** Drop the pin and follow whatever the system picks. */
+function followSystemDefault() {
+  audioApi()?.ClearDefaultDeviceOverride(OUTPUT);
+}
+
+async function cycleOutput(): Promise<AudioDevice | null> {
+  const { devices, activeId } = await readOutputs();
+  if (devices.length < 2) return null;
+  const index = devices.findIndex((d) => d.id === activeId);
+  const next = devices[(index + 1) % devices.length];
+  switchTo(next.id);
+  return next;
+}
 
 // A single button would fire every time it is pressed for its normal purpose.
 const MIN_COMBO = 2;
@@ -86,10 +127,10 @@ function drop(reg: any) {
 
 async function fire() {
   try {
-    const result = await cycleSink();
+    const next = await cycleOutput();
     toaster.toast({
       title: "Audio Output",
-      body: result?.ok ? result.label || "Switched" : result?.error || "Switch failed.",
+      body: next ? next.sName : "Only one output available.",
     });
   } catch {
     toaster.toast({ title: "Audio Output", body: "Switch failed." });
@@ -181,7 +222,7 @@ function SpeakerIcon() {
 }
 
 function Content() {
-  const [sinks, setSinks] = useState<Sink[]>([]);
+  const [outputs, setOutputs] = useState<Outputs>({ devices: [], activeId: -1, overrideId: -1 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [shortcut, setShortcut] = useState<Shortcut>(config);
@@ -189,8 +230,7 @@ function Content() {
 
   const refresh = async () => {
     try {
-      const result = await listSinks();
-      setSinks(Array.isArray(result) ? result : []);
+      setOutputs(await readOutputs());
       setError("");
     } catch {
       setError("Could not read audio devices.");
@@ -200,10 +240,15 @@ function Content() {
   useEffect(() => {
     refresh();
     setShortcut(config);
-    // Wireless dongles drop their sink when the headset powers off, so repoll
-    // while the panel is open rather than trusting the first read.
-    const timer = window.setInterval(refresh, 4000);
-    return () => window.clearInterval(timer);
+    // A wireless headset powering off is an event, not something to poll for:
+    // Steam says so directly, so the panel reacts at once instead of up to four
+    // seconds later.
+    const api = audioApi();
+    const subs = [
+      api?.RegisterForDeviceAdded?.(refresh),
+      api?.RegisterForDeviceRemoved?.(refresh),
+    ];
+    return () => subs.forEach(drop);
   }, []);
 
   const persist = async (next: Shortcut) => {
@@ -235,18 +280,26 @@ function Content() {
     };
   };
 
-  const pick = async (sink: Sink) => {
+  const pick = async (device: AudioDevice) => {
     setBusy(true);
     try {
-      const result = await setSink(sink.name);
-      if (result?.ok) {
-        toaster.toast({ title: "Audio Output", body: sink.label });
-      } else {
-        setError(result?.error || "Switch failed.");
-      }
-      await refresh();
+      switchTo(device.id);
+      toaster.toast({ title: "Audio Output", body: device.sName });
+      // SetDefaultDeviceOverride returns nothing to wait on -- Steam's own
+      // selector fires and forgets too -- so re-read once it has landed.
+      window.setTimeout(refresh, 400);
     } catch {
       setError("Switch failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const useSystemDefault = async () => {
+    setBusy(true);
+    try {
+      followSystemDefault();
+      window.setTimeout(refresh, 400);
     } finally {
       setBusy(false);
     }
@@ -257,20 +310,27 @@ function Content() {
   return (
     <>
       <PanelSection title="Output Device">
-        {sinks.map((sink) => (
-          <PanelSectionRow key={sink.name}>
+        {outputs.devices.map((device) => (
+          <PanelSectionRow key={device.id}>
             <ButtonItem
               layout="below"
-              disabled={busy || sink.active}
-              onClick={() => pick(sink)}
+              disabled={busy || device.id === outputs.activeId}
+              onClick={() => pick(device)}
             >
-              {(sink.active ? "●  " : "") + sink.label}
+              {(device.id === outputs.activeId ? "●  " : "") + device.sName}
             </ButtonItem>
           </PanelSectionRow>
         ))}
-        {sinks.length === 0 && (
+        {outputs.devices.length === 0 && (
           <PanelSectionRow>
             <div style={{ opacity: 0.6 }}>No outputs found.</div>
+          </PanelSectionRow>
+        )}
+        {outputs.overrideId !== -1 && (
+          <PanelSectionRow>
+            <ButtonItem layout="below" disabled={busy} onClick={useSystemDefault}>
+              Follow system default
+            </ButtonItem>
           </PanelSectionRow>
         )}
         {error !== "" && (
