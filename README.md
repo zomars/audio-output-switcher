@@ -35,8 +35,19 @@ selector uses:
 - `GetDevices()` returns the outputs plus `activeOutputDeviceId`. This is not the
   raw PipeWire sink list — Steam collapses a Deck's speakers and headphone jack
   into one device, so `SetDefaultDeviceOverride` cannot reach that distinction —
-  but it is not narrowed to physical devices either: a plain `module-null-sink`
-  shows up here with `bHasOutput` set.
+  but it is not narrowed to real devices either. `steam-streaming-playback` and
+  plain null sinks arrive here with `bHasOutput` set, and picking one silences
+  the speakers with no clue why, so the panel drops them. Not by name: a real
+  sink reports at least one entry in `availableConfigs` and a described
+  `currentConfig`, and a virtual one reports none, with connector and bus `0`.
+  If a build ever reported configs differently and that left nothing, the panel
+  shows the unfiltered list rather than an empty one.
+- `RegisterForDeviceAdded` / `RegisterForDeviceRemoved` replace polling: a wireless
+  headset powering off is an event, so the panel reacts at once rather than up to
+  four seconds later. Both return **nothing** on current builds, though, so there
+  is no handle to unregister with. The plugin subscribes once when it loads and
+  fans out to the panel from there; subscribing per panel mount would leave a dead
+  callback behind on Steam for every trip into the Quick Access Menu.
 - `SetDefaultDeviceOverride(id, 1)` switches. Measured on a device: it changes the
   real PipeWire default — `pactl get-default-sink` follows it — **and drags every
   already-playing stream across on its own**. An earlier version of this plugin
@@ -44,9 +55,6 @@ selector uses:
   every live stream to get the same effect.
 - `ClearDefaultDeviceOverride(1)` unpins it again, which is what the panel's
   "Follow system default" row does. It only appears while an override is set.
-- `RegisterForDeviceAdded` / `RegisterForDeviceRemoved` replace polling. A wireless
-  headset powering off is an event, so the panel reacts at once rather than up to
-  four seconds later.
 
 The active device is pinned to the top of the panel, but only there: the list the
 shortcut cycles through stays in name order. Pinning it in both places would make

@@ -12,6 +12,7 @@ interface AudioDevice {
   id: number;
   sName: string;
   bHasOutput: boolean;
+  availableConfigs?: number[];
 }
 
 interface Outputs {
@@ -33,13 +34,25 @@ const OUTPUT = 1;
 
 const audioApi = () => (window as any).SteamClient?.System?.Audio;
 
+/** A sink someone could mean to pick.
+ *
+ * Measured on hardware rather than matched by name: HDMI and a USB headset both
+ * report availableConfigs [1] and a described currentConfig, while
+ * steam-streaming-playback -- the sink a Remote Play session parks on, and one
+ * that really does turn up in GetDevices() with bHasOutput set -- reports no
+ * configs at all, eConfig 0, an empty description, and connector and bus 0.
+ * Plain null sinks look the same. Picking one silences the speakers with no way
+ * to tell why, so they do not belong in the list.
+ */
+function isRealOutput(device: AudioDevice): boolean {
+  return !!device?.bHasOutput && (device.availableConfigs?.length ?? 0) > 0;
+}
+
 /** Outputs as Steam sees them, active device included.
  *
  * This is not the raw PipeWire sink list. Steam collapses some sinks into one
  * device -- a Deck's speakers and headphone jack arrive as a single entry, which
- * is why a handheld with nothing attached has exactly one output to pick. It is
- * not filtered down to physical devices either: a plain null sink shows up here
- * with bHasOutput set.
+ * is why a handheld with nothing attached has exactly one output to pick.
  *
  * Sorted by name and nothing else. The active device is pinned to the top for
  * display only -- see Content -- so that the shortcut's cycle order stays put
@@ -49,9 +62,15 @@ async function readOutputs(): Promise<Outputs> {
   const api = audioApi();
   if (!api?.GetDevices) throw new Error("SteamClient.System.Audio unavailable");
   const state = await api.GetDevices();
-  const devices: AudioDevice[] = (state?.vecDevices ?? [])
-    .filter((d: AudioDevice) => d?.bHasOutput)
-    .sort((a: AudioDevice, b: AudioDevice) => a.sName.localeCompare(b.sName));
+  const outputs: AudioDevice[] = (state?.vecDevices ?? []).filter(
+    (d: AudioDevice) => d?.bHasOutput,
+  );
+  const real = outputs.filter(isRealOutput);
+  // Never leave someone with an empty panel over a heuristic: if a build reports
+  // configs differently and nothing passes, show everything rather than nothing.
+  const devices = (real.length ? real : outputs).sort((a, b) =>
+    a.sName.localeCompare(b.sName),
+  );
   return {
     devices,
     activeId: state?.activeOutputDeviceId ?? -1,
@@ -154,6 +173,27 @@ function armCaptureTimeout() {
 let comboHeld = false;
 
 let inputReg: any = null;
+
+// Measured on current builds: RegisterForDeviceAdded and RegisterForDeviceRemoved
+// return nothing at all, so there is no handle to unregister with and the panel
+// cannot take its callback back off Steam when it closes. Subscribing once at
+// load and fanning out from there keeps that from leaving one dead callback
+// behind per QAM open, each re-reading the device list forever.
+const deviceListeners = new Set<() => void>();
+
+function onDevicesChanged(listener: () => void) {
+  deviceListeners.add(listener);
+  return () => {
+    deviceListeners.delete(listener);
+  };
+}
+
+function watchDevices() {
+  const api = audioApi();
+  const notify = () => deviceListeners.forEach((listener) => listener());
+  api?.RegisterForDeviceAdded?.(notify);
+  api?.RegisterForDeviceRemoved?.(notify);
+}
 
 function drop(reg: any) {
   try {
@@ -281,16 +321,13 @@ function Content() {
     // A wireless headset powering off is an event, not something to poll for:
     // Steam says so directly, so the panel reacts at once instead of up to four
     // seconds later.
-    const api = audioApi();
-    const subs = [
-      api?.RegisterForDeviceAdded?.(refresh),
-      api?.RegisterForDeviceRemoved?.(refresh),
-    ];
+    const unsubscribe = onDevicesChanged(refresh);
     return () => {
-      subs.forEach(drop);
-      // The panel can go away mid-recording -- the ... button closes the Quick
-      // Access Menu without sending anything to the input stream -- and the
-      // capture hook is a module global, so it would outlive the component.
+      unsubscribe();
+      // The panel can go away mid-recording, and the capture hook is a module
+      // global, so it would otherwise outlive the component. Leaving the plugin
+      // page unmounts and lands here; the deadline in armCaptureTimeout covers
+      // anything that does not.
       endCapture();
     };
   }, []);
@@ -450,6 +487,7 @@ export default definePlugin(() => {
 
   listen();
   watchForResume();
+  watchDevices();
 
   return {
     name: "Audio Output Switcher",
