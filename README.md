@@ -4,13 +4,15 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin that 
 
 ![The plugin panel, listing available outputs with the active one marked](assets/panel.png)
 
-SteamOS gamemode has no output-device picker on every device — on a Steam Machine driving a TV, the QAM audio section is only a CEC volume slider. Changing outputs otherwise means a trip to desktop mode. This plugin lists every available sink and switches with one tap.
+SteamOS gamemode has no output-device picker on every device — on a Steam Machine driving a TV, the QAM audio section is only a CEC volume slider. Changing outputs otherwise means a trip to desktop mode. This plugin lists the outputs Steam knows about and switches with one tap.
+
+It is for setups with somewhere to switch **to**: a dock, a TV, a headset, a USB DAC. A handheld with nothing attached has exactly one output — Steam presents its speakers and headphone jack as a single device — and the panel says so rather than showing a lone row you cannot press.
 
 ## Features
 
-- Lists all available audio outputs, active device marked and pinned to the top
+- Lists the available audio outputs, active device marked and pinned to the top
 - Switches the default sink **and moves already-playing streams**, so audio follows immediately instead of only affecting the next sound
-- Repolls while the panel is open, so wireless headsets appearing and disappearing are reflected without a reload
+- Device arrival and removal are events, not polls, so a wireless headset connecting or powering off shows up without reloading the panel
 - Optional **controller shortcut**: a button combo of your choice cycles to the next output, without opening the panel or leaving the game
 
 ## Install
@@ -30,10 +32,11 @@ sudo systemctl restart plugin_loader
 Switching goes through `SteamClient.System.Audio`, the same API Steam's own audio
 selector uses:
 
-- `GetDevices()` returns the outputs plus `activeOutputDeviceId`. Steam's list is
-  narrower than PipeWire's, and deliberately so: virtual sinks like
-  `steam-streaming-playback` never appear, and they were never a destination
-  anyone meant to pick.
+- `GetDevices()` returns the outputs plus `activeOutputDeviceId`. This is not the
+  raw PipeWire sink list — Steam collapses a Deck's speakers and headphone jack
+  into one device, so `SetDefaultDeviceOverride` cannot reach that distinction —
+  but it is not narrowed to physical devices either: a plain `module-null-sink`
+  shows up here with `bHasOutput` set.
 - `SetDefaultDeviceOverride(id, 1)` switches. Measured on a device: it changes the
   real PipeWire default — `pactl get-default-sink` follows it — **and drags every
   already-playing stream across on its own**. An earlier version of this plugin
@@ -45,6 +48,10 @@ selector uses:
   headset powering off is an event, so the panel reacts at once rather than up to
   four seconds later.
 
+The active device is pinned to the top of the panel, but only there: the list the
+shortcut cycles through stays in name order. Pinning it in both places would make
+"next" mean the first name every time, and a third device would never come up.
+
 `main.py` therefore stores the shortcut binding and nothing else — the audio path
 has no Python in it at all.
 
@@ -53,6 +60,12 @@ has no Python in it at all.
 The combo is two or more ordinary buttons pressed together, and nothing is bound
 until you record one: hold the buttons, let go, done. The back paddles are the
 safest pick, since most games leave them unbound.
+
+Recording ends when you let the buttons go, and gives up after ten seconds if
+they never come. It is also disarmed when the panel closes — the `…` button
+closes the Quick Access Menu without sending anything to the input stream, so an
+abandoned recording would otherwise sit armed and take the next two buttons
+pressed together in a game as the new binding.
 
 **The Steam and `…` buttons cannot be part of it.** They do not arrive through the
 controller button stream at all; they come through

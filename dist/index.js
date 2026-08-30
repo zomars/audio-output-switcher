@@ -30,9 +30,15 @@ const OUTPUT = 1;
 const audioApi = () => window.SteamClient?.System?.Audio;
 /** Outputs as Steam sees them, active device included.
  *
- * Steam's list is narrower than PipeWire's on purpose: virtual sinks like
- * steam-streaming-playback never appear, and they were never a destination a
- * person meant to pick.
+ * This is not the raw PipeWire sink list. Steam collapses some sinks into one
+ * device -- a Deck's speakers and headphone jack arrive as a single entry, which
+ * is why a handheld with nothing attached has exactly one output to pick. It is
+ * not filtered down to physical devices either: a plain null sink shows up here
+ * with bHasOutput set.
+ *
+ * Sorted by name and nothing else. The active device is pinned to the top for
+ * display only -- see Content -- so that the shortcut's cycle order stays put
+ * instead of reshuffling under itself after every switch.
  */
 async function readOutputs() {
     const api = audioApi();
@@ -58,6 +64,9 @@ function switchTo(id) {
 function followSystemDefault() {
     audioApi()?.ClearDefaultDeviceOverride(OUTPUT);
 }
+/** Next output in name order. Deliberately the unpinned order: pinning the
+ *  active device first would make "next" mean the first name in the list every
+ *  time, and a third device would never come up. */
 async function cycleOutput() {
     const { devices, activeId } = await readOutputs();
     if (devices.length < 2)
@@ -93,12 +102,39 @@ function comboLabel(buttons) {
 // a grace window that ignores the click's own events, and excluding anything
 // already held when capture began, for when A's press is processed first instead.
 const CAPTURE_GRACE_MS = 250;
+// Recording has to end on its own if the buttons never come. Closing the Quick
+// Access Menu with the ... button does not reach the input stream, so without a
+// deadline an abandoned capture would sit armed and swallow the next two buttons
+// pressed together in a game, overwriting the saved combo with them. Measured
+// from the last input rather than from the start, so a long hold is never cut
+// off mid-combo.
+const CAPTURE_TIMEOUT_MS = 10000;
 const held = new Set();
 const captured = new Set();
 const capturePreHeld = new Set();
 let captureStart = 0;
 let config = { enabled: false, buttons: [] };
 let capture = null;
+let captureTimer = 0;
+let captureExpire = null;
+/** Disarm recording. The one place that clears it, so no path can leave the
+ *  capture hook live with the panel gone. */
+function endCapture() {
+    capture = null;
+    captureExpire = null;
+    captured.clear();
+    capturePreHeld.clear();
+    window.clearTimeout(captureTimer);
+    captureTimer = 0;
+}
+function armCaptureTimeout() {
+    window.clearTimeout(captureTimer);
+    captureTimer = window.setTimeout(() => {
+        const expired = captureExpire;
+        endCapture();
+        expired?.();
+    }, CAPTURE_TIMEOUT_MS);
+}
 // Latched so holding the combo fires once, on the press that completes it,
 // instead of repeating for every further button that happens to go down.
 let comboHeld = false;
@@ -132,6 +168,7 @@ function onButton(button, pressed) {
     else
         held.delete(button);
     if (capture) {
+        armCaptureTimeout();
         if (pressed) {
             if (Date.now() - captureStart < CAPTURE_GRACE_MS || capturePreHeld.has(button)) {
                 capturePreHeld.add(button);
@@ -145,10 +182,8 @@ function onButton(button, pressed) {
             capturePreHeld.delete(button);
             if (captured.size && held.size === 0) {
                 const done = capture;
-                capture = null;
                 const buttons = [...captured].sort((a, b) => a - b);
-                captured.clear();
-                capturePreHeld.clear();
+                endCapture();
                 done(buttons);
             }
         }
@@ -226,7 +261,13 @@ function Content() {
             api?.RegisterForDeviceAdded?.(refresh),
             api?.RegisterForDeviceRemoved?.(refresh),
         ];
-        return () => subs.forEach(drop);
+        return () => {
+            subs.forEach(drop);
+            // The panel can go away mid-recording -- the ... button closes the Quick
+            // Access Menu without sending anything to the input stream -- and the
+            // capture hook is a module global, so it would outlive the component.
+            endCapture();
+        };
     }, []);
     const persist = async (next) => {
         config = next;
@@ -239,11 +280,15 @@ function Content() {
         }
     };
     const startCapture = () => {
-        captured.clear();
-        capturePreHeld.clear();
+        endCapture();
         held.forEach((b) => capturePreHeld.add(b));
         captureStart = Date.now();
         setCapturing(true);
+        captureExpire = () => {
+            setCapturing(false);
+            setError("Nothing recorded. Hold the buttons together, then let go.");
+        };
+        armCaptureTimeout();
         capture = (buttons) => {
             setCapturing(false);
             // Too short a combo would fire during ordinary play, so refuse it rather
@@ -282,8 +327,14 @@ function Content() {
             setBusy(false);
         }
     };
+    // Pinned here rather than in readOutputs so the shortcut keeps cycling through
+    // a stable name-ordered list; see cycleOutput.
+    const listed = [
+        ...outputs.devices.filter((d) => d.id === outputs.activeId),
+        ...outputs.devices.filter((d) => d.id !== outputs.activeId),
+    ];
     const ready = shortcut.buttons.length >= MIN_COMBO;
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Output Device", children: [outputs.devices.map((device) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy || device.id === outputs.activeId, onClick: () => pick(device), children: (device.id === outputs.activeId ? "●  " : "") + device.sName }) }, device.id))), outputs.devices.length === 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6 }, children: "No outputs found." }) })), outputs.overrideId !== -1 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy, onClick: useSystemDefault, children: "Follow system default" }) })), error !== "" && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { color: "#e05c5c" }, children: error }) }))] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Shortcut", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Cycle output with a button combo", description: ready
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs(DFL.PanelSection, { title: "Output Device", children: [listed.map((device) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy || device.id === outputs.activeId, onClick: () => pick(device), children: (device.id === outputs.activeId ? "●  " : "") + device.sName }) }, device.id))), outputs.devices.length === 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6 }, children: "No outputs found." }) })), outputs.devices.length === 1 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6, fontSize: "0.8em" }, children: "Only one output right now. Connect a headset, dock or TV and it appears here. Steam presents a handheld's speakers and headphone jack as this one device, so there is nothing to switch between until something else is attached." }) })), outputs.overrideId !== -1 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: busy, onClick: useSystemDefault, children: "Follow system default" }) })), error !== "" && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { color: "#e05c5c" }, children: error }) }))] }), SP_JSX.jsxs(DFL.PanelSection, { title: "Shortcut", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: "Cycle output with a button combo", description: ready
                                 ? `Press ${comboLabel(shortcut.buttons)} together, anywhere, even in a game.`
                                 : `Set a combo of at least ${MIN_COMBO} buttons first.`, checked: shortcut.enabled, disabled: !ready, onChange: (value) => persist({ ...config, enabled: value }) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", disabled: capturing, onClick: startCapture, children: capturing ? "Hold the buttons, then let go" : comboLabel(shortcut.buttons) }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("div", { style: { opacity: 0.6, fontSize: "0.8em" }, children: "The Steam and \u2026 buttons cannot be part of a combo \u2014 Steam keeps them to itself. The back paddles are the safest choice: most games leave them alone." }) })] })] }));
 }

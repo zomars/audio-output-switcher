@@ -1,6 +1,6 @@
 {
   "name": "audio-output-switcher",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Switch the default audio output device from the Quick Access Menu.",
   "type": "module",
   "scripts": {
