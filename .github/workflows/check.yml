@@ -1,0 +1,24 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The image the Decky plugin store builds with, so a failure here is a failure there.
+    container: ghcr.io/steamdeckhomebrew/builder:latest
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Manifests are valid JSON
+        run: |
+          python3 -c "import json; json.load(open('plugin.json')); json.load(open('package.json'))" \
+            || node -e "JSON.parse(require('fs').readFileSync('plugin.json')); JSON.parse(require('fs').readFileSync('package.json'))"
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+      - name: Build
+        run: pnpm run build && test -s dist/index.js
