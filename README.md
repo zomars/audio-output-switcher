@@ -4,7 +4,7 @@ A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin that 
 
 ![The plugin panel, listing available outputs with the active one marked](assets/panel.png)
 
-SteamOS gamemode has no output-device picker on every device — on a Steam Machine driving a TV, the QAM audio section is only a CEC volume slider. Changing outputs otherwise means a trip to desktop mode. This plugin lists the outputs Steam knows about and switches with one tap.
+In gamemode the output device can only be changed in Settings → Audio, several screens away — on a Steam Machine driving a TV, the QAM audio section is only a CEC volume slider. This plugin puts the outputs Steam knows about in the QAM and switches with one tap.
 
 It is for setups with somewhere to switch **to**: a dock, a TV, a headset, a USB DAC. A handheld with nothing attached has exactly one output — Steam presents its speakers and headphone jack as a single device — and the panel says so rather than showing a lone row you cannot press.
 

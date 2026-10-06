@@ -5,7 +5,7 @@
   "api_version": 1,
   "publish": {
     "tags": ["audio", "utility"],
-    "description": "Switch the default audio output device from the Quick Access Menu \u2014 for docks, TVs, headsets and DACs, on devices where gamemode gives you no output picker. Lists the outputs Steam exposes, switches with one tap, and moves already-playing streams over so audio follows immediately. A handheld with nothing attached has only one output to pick.",
+    "description": "Switch the default audio output device from the Quick Access Menu \u2014 for docks, TVs, headsets and DACs, without going through Settings → Audio. Lists the outputs Steam exposes, switches with one tap, and moves already-playing streams over so audio follows immediately. A handheld with nothing attached has only one output to pick.",
     "image": "https://raw.githubusercontent.com/zomars/audio-output-switcher/main/assets/panel.png"
   }
 }
