@@ -204,15 +204,36 @@ function drop(reg: any) {
   }
 }
 
+// Steam queues toasts and shows each one for its full duration, so switching
+// several times in a row used to leave a trail of stale device names playing out
+// long after the last switch. Only the newest switch is worth showing: earlier
+// ones are pulled out of Steam's queue -- on screen or still waiting -- before
+// the next goes in. Decky's dismiss() only clears the tray entry, not the queue,
+// hence the reach into NotificationStore. The queue holds a copy of each toast,
+// not the object handed to Decky, so they are recognised by title.
+const TOAST_TITLE = "Audio Output";
+let lastToast: { dismiss?: () => void } | undefined;
+
+function notify(body: string) {
+  try {
+    // Measured: the predicate says what to KEEP, despite the method's name.
+    (window as any).NotificationStore?.RemoveFromToastsWhere?.(
+      (entry: any) => entry?.data?.title !== TOAST_TITLE,
+    );
+  } catch {
+    // Worst case the old toasts play out, as they did before.
+  }
+  lastToast?.dismiss?.();
+  // Another plugin can wrap the toaster and return nothing, hence the optional calls.
+  lastToast = toaster.toast({ title: TOAST_TITLE, body });
+}
+
 async function fire() {
   try {
     const next = await cycleOutput();
-    toaster.toast({
-      title: "Audio Output",
-      body: next ? next.sName : "Only one output available.",
-    });
+    notify(next ? next.sName : "Only one output available.");
   } catch {
-    toaster.toast({ title: "Audio Output", body: "Switch failed." });
+    notify("Switch failed.");
   }
 }
 
@@ -369,7 +390,7 @@ function Content() {
     setBusy(true);
     try {
       switchTo(device.id);
-      toaster.toast({ title: "Audio Output", body: device.sName });
+      notify(device.sName);
       // SetDefaultDeviceOverride returns nothing to wait on -- Steam's own
       // selector fires and forgets too -- so re-read once it has landed.
       window.setTimeout(refresh, 400);
@@ -461,6 +482,17 @@ function Content() {
             {capturing ? "Hold the buttons, then let go" : comboLabel(shortcut.buttons)}
           </ButtonItem>
         </PanelSectionRow>
+        {shortcut.buttons.length > 0 && (
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              disabled={capturing}
+              onClick={() => persist({ enabled: false, buttons: [] })}
+            >
+              Clear shortcut
+            </ButtonItem>
+          </PanelSectionRow>
+        )}
         <PanelSectionRow>
           <div style={{ opacity: 0.6, fontSize: "0.8em" }}>
             The Steam and … buttons cannot be part of a combo — Steam keeps them to

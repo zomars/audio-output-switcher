@@ -67,7 +67,8 @@ has no Python in it at all.
 
 The combo is two or more ordinary buttons pressed together, and nothing is bound
 until you record one: hold the buttons, let go, done. The back paddles are the
-safest pick, since most games leave them unbound.
+safest pick, since most games leave them unbound. **Clear shortcut** removes the
+binding and turns the shortcut off.
 
 Recording ends when you let the buttons go, and gives up after ten seconds if
 they never come. It is also disarmed when the panel closes — the `…` button
