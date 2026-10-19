@@ -3,6 +3,7 @@
   "version": "1.4.0",
   "description": "Switch the default audio output device from the Quick Access Menu.",
   "type": "module",
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
     "watch": "rollup -c -w"
