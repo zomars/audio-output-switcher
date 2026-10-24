@@ -37,9 +37,12 @@ selector uses:
   into one device, so `SetDefaultDeviceOverride` cannot reach that distinction —
   but it is not narrowed to real devices either. `steam-streaming-playback` and
   plain null sinks arrive here with `bHasOutput` set, and picking one silences
-  the speakers with no clue why, so the panel drops them. Not by name: a real
-  sink reports at least one entry in `availableConfigs` and a described
-  `currentConfig`, and a virtual one reports none, with connector and bus `0`.
+  the speakers with no clue why, so the panel drops them. Not by name: a virtual
+  sink reports no `availableConfigs` and bus `0` (Unknown). A real sink has
+  configs, or at least a real bus: a Steam Deck's built-in audio reports no
+  configs either, but sits on bus `1` (PCI). Steam's raw name for that device is
+  `ACP/ACP3X/ACP6x Audio Coprocessor`; the panel shows Steam's own label,
+  Speakers, as Settings → Audio does.
   If a build ever reported configs differently and that left nothing, the panel
   shows the unfiltered list rather than an empty one.
 - `RegisterForDeviceAdded` / `RegisterForDeviceRemoved` replace polling: a wireless

@@ -3,6 +3,7 @@ import {
   PanelSection,
   PanelSectionRow,
   ToggleField,
+  findModuleExport,
   staticClasses,
 } from "@decky/ui";
 import { callable, definePlugin, toaster } from "@decky/api";
@@ -13,6 +14,7 @@ interface AudioDevice {
   sName: string;
   bHasOutput: boolean;
   availableConfigs?: number[];
+  eBus?: number;
 }
 
 interface Outputs {
@@ -34,6 +36,9 @@ const OUTPUT = 1;
 
 const audioApi = () => (window as any).SteamClient?.System?.Audio;
 
+// EAudioBus.Unknown, read out of Steam's bundle.
+const EBUS_UNKNOWN = 0;
+
 /** A sink someone could mean to pick.
  *
  * Measured on hardware rather than matched by name: HDMI and a USB headset both
@@ -43,9 +48,34 @@ const audioApi = () => (window as any).SteamClient?.System?.Audio;
  * configs at all, eConfig 0, an empty description, and connector and bus 0.
  * Plain null sinks look the same. Picking one silences the speakers with no way
  * to tell why, so they do not belong in the list.
+ *
+ * Configs alone are not enough: a Steam Deck's built-in audio (the ACP device,
+ * speakers and headphone jack together) also reports no configs and eConfig 0.
+ * It does sit on a real bus (Pci), which a virtual sink never does.
  */
 function isRealOutput(device: AudioDevice): boolean {
-  return !!device?.bHasOutput && (device.availableConfigs?.length ?? 0) > 0;
+  return (
+    !!device?.bHasOutput &&
+    ((device.availableConfigs?.length ?? 0) > 0 || (device.eBus ?? 0) !== EBUS_UNKNOWN)
+  );
+}
+
+/** Steam's own audio store, the one behind Settings → Audio. Its export name is
+ *  minified, so it is found by shape; its method names are not. */
+const audioStore = findModuleExport(
+  (e: any) => typeof e?.getDevices === "function" && typeof e?.getActiveDeviceId === "function",
+);
+
+/** The name Settings → Audio shows. Steam relabels onboard audio -- a Deck's
+ *  "ACP/ACP3X/ACP6x Audio Coprocessor" becomes "Speakers", localized -- and
+ *  asking its store keeps the panel in step without copying its list of names.
+ *  Falls back to the raw name if a Steam update moves the store. */
+function displayName(device: AudioDevice): string {
+  try {
+    const name = audioStore?.getDevice?.(device.id)?.GetName?.(OUTPUT);
+    if (typeof name === "string" && name) return name;
+  } catch {}
+  return device.sName;
 }
 
 /** Outputs as Steam sees them, active device included.
@@ -69,7 +99,7 @@ async function readOutputs(): Promise<Outputs> {
   // Never leave someone with an empty panel over a heuristic: if a build reports
   // configs differently and nothing passes, show everything rather than nothing.
   const devices = (real.length ? real : outputs).sort((a, b) =>
-    a.sName.localeCompare(b.sName),
+    displayName(a).localeCompare(displayName(b)),
   );
   return {
     devices,
@@ -231,7 +261,7 @@ function notify(body: string) {
 async function fire() {
   try {
     const next = await cycleOutput();
-    notify(next ? next.sName : "Only one output available.");
+    notify(next ? displayName(next) : "Only one output available.");
   } catch {
     notify("Switch failed.");
   }
@@ -390,7 +420,7 @@ function Content() {
     setBusy(true);
     try {
       switchTo(device.id);
-      notify(device.sName);
+      notify(displayName(device));
       // SetDefaultDeviceOverride returns nothing to wait on -- Steam's own
       // selector fires and forgets too -- so re-read once it has landed.
       window.setTimeout(refresh, 400);
@@ -430,7 +460,7 @@ function Content() {
               disabled={busy || device.id === outputs.activeId}
               onClick={() => pick(device)}
             >
-              {(device.id === outputs.activeId ? "●  " : "") + device.sName}
+              {(device.id === outputs.activeId ? "●  " : "") + displayName(device)}
             </ButtonItem>
           </PanelSectionRow>
         ))}
