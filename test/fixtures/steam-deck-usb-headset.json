@@ -1,0 +1,75 @@
+{
+  "_synthetic": "Steam Deck onboard dump (zdeck, 2026-10-24) plus a USB headset entry copied from the Steam Machine's, renamed to the TUF H3 Wireless from PR #1103's report.",
+  "activeOutputDeviceId": 90,
+  "activeInputDeviceId": 90,
+  "overrideOutputDeviceId": -1,
+  "overrideInputDeviceId": -1,
+  "vecDevices": [
+    {
+      "id": 50,
+      "sName": "Rembrandt Radeon High Definition Audio Controller",
+      "bHasOutput": false,
+      "bIsDefaultOutputDevice": false,
+      "currentConfig": {
+        "eConfig": 0,
+        "sDescription": "Off",
+        "nChannels": 0
+      },
+      "availableConfigs": [],
+      "flOutputVolume": 0,
+      "bHasInput": false,
+      "bIsDefaultInputDevice": false,
+      "flInputVolume": 22875.19921875,
+      "eConnectorType": 0,
+      "eBus": 1,
+      "bSupportsHdmiCec": false,
+      "bHdmiCecEnabled": false,
+      "bHdmiCecActive": false
+    },
+    {
+      "id": 51,
+      "sName": "ACP/ACP3X/ACP6x Audio Coprocessor",
+      "bHasOutput": true,
+      "bIsDefaultOutputDevice": false,
+      "currentConfig": {
+        "eConfig": 0,
+        "sDescription": "Default (Headphones, Internal Mic, Speaker)",
+        "nChannels": 2
+      },
+      "availableConfigs": [],
+      "flOutputVolume": 0.47918701171875,
+      "bHasInput": true,
+      "bIsDefaultInputDevice": true,
+      "flInputVolume": 1,
+      "eConnectorType": 2,
+      "eBus": 1,
+      "bSupportsHdmiCec": false,
+      "bHdmiCecEnabled": false,
+      "bHdmiCecActive": false
+    },
+    {
+      "id": 90,
+      "sName": "TUF H3 Wireless",
+      "bHasOutput": true,
+      "bIsDefaultOutputDevice": true,
+      "currentConfig": {
+        "eConfig": 1,
+        "sDescription": "Analog Stereo Output + Mono Input",
+        "nChannels": 2
+      },
+      "availableConfigs": [
+        1
+      ],
+      "flOutputVolume": 1,
+      "bHasInput": true,
+      "bIsDefaultInputDevice": true,
+      "flInputVolume": 1,
+      "eConnectorType": 22,
+      "eBus": 2,
+      "bIsController": false,
+      "bSupportsHdmiCec": false,
+      "bHdmiCecEnabled": false,
+      "bHdmiCecActive": false
+    }
+  ]
+}

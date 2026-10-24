@@ -9,24 +9,8 @@ import {
 import { callable, definePlugin, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 
-interface AudioDevice {
-  id: number;
-  sName: string;
-  bHasOutput: boolean;
-  availableConfigs?: number[];
-  eBus?: number;
-}
-
-interface Outputs {
-  devices: AudioDevice[];
-  activeId: number;
-  overrideId: number;
-}
-
-interface Shortcut {
-  enabled: boolean;
-  buttons: number[];
-}
+import { outputList, type DevicesSnapshot, type Output } from "./outputs";
+import { MIN_COMBO, comboLabel, createShortcut, type Shortcut } from "./shortcut";
 
 const getShortcut = callable<[], Shortcut>("get_shortcut");
 const saveShortcut = callable<[boolean, number[]], { ok: boolean }>("set_shortcut");
@@ -35,30 +19,6 @@ const saveShortcut = callable<[boolean, number[]], { ok: boolean }>("set_shortcu
 const OUTPUT = 1;
 
 const audioApi = () => (window as any).SteamClient?.System?.Audio;
-
-// EAudioBus.Unknown, read out of Steam's bundle.
-const EBUS_UNKNOWN = 0;
-
-/** A sink someone could mean to pick.
- *
- * Measured on hardware rather than matched by name: HDMI and a USB headset both
- * report availableConfigs [1] and a described currentConfig, while
- * steam-streaming-playback -- the sink a Remote Play session parks on, and one
- * that really does turn up in GetDevices() with bHasOutput set -- reports no
- * configs at all, eConfig 0, an empty description, and connector and bus 0.
- * Plain null sinks look the same. Picking one silences the speakers with no way
- * to tell why, so they do not belong in the list.
- *
- * Configs alone are not enough: a Steam Deck's built-in audio (the ACP device,
- * speakers and headphone jack together) also reports no configs and eConfig 0.
- * It does sit on a real bus (Pci), which a virtual sink never does.
- */
-function isRealOutput(device: AudioDevice): boolean {
-  return (
-    !!device?.bHasOutput &&
-    ((device.availableConfigs?.length ?? 0) > 0 || (device.eBus ?? 0) !== EBUS_UNKNOWN)
-  );
-}
 
 /** Steam's own audio store, the one behind Settings → Audio. Its export name is
  *  minified, so it is found by shape; its method names are not. */
@@ -70,7 +30,7 @@ const audioStore = findModuleExport(
  *  "ACP/ACP3X/ACP6x Audio Coprocessor" becomes "Speakers", localized -- and
  *  asking its store keeps the panel in step without copying its list of names.
  *  Falls back to the raw name if a Steam update moves the store. */
-function displayName(device: AudioDevice): string {
+function displayName(device: Output): string {
   try {
     const name = audioStore?.getDevice?.(device.id)?.GetName?.(OUTPUT);
     if (typeof name === "string" && name) return name;
@@ -78,34 +38,11 @@ function displayName(device: AudioDevice): string {
   return device.sName;
 }
 
-/** Outputs as Steam sees them, active device included.
- *
- * This is not the raw PipeWire sink list. Steam collapses some sinks into one
- * device -- a Deck's speakers and headphone jack arrive as a single entry, which
- * is why a handheld with nothing attached has exactly one output to pick.
- *
- * Sorted by name and nothing else. The active device is pinned to the top for
- * display only -- see Content -- so that the shortcut's cycle order stays put
- * instead of reshuffling under itself after every switch.
- */
-async function readOutputs(): Promise<Outputs> {
+async function readOutputs() {
   const api = audioApi();
   if (!api?.GetDevices) throw new Error("SteamClient.System.Audio unavailable");
-  const state = await api.GetDevices();
-  const outputs: AudioDevice[] = (state?.vecDevices ?? []).filter(
-    (d: AudioDevice) => d?.bHasOutput,
-  );
-  const real = outputs.filter(isRealOutput);
-  // Never leave someone with an empty panel over a heuristic: if a build reports
-  // configs differently and nothing passes, show everything rather than nothing.
-  const devices = (real.length ? real : outputs).sort((a, b) =>
-    displayName(a).localeCompare(displayName(b)),
-  );
-  return {
-    devices,
-    activeId: state?.activeOutputDeviceId ?? -1,
-    overrideId: state?.overrideOutputDeviceId ?? -1,
-  };
+  const snapshot: DevicesSnapshot = await api.GetDevices();
+  return outputList(snapshot, displayName);
 }
 
 /** Switch output. Steam changes the real PipeWire default and drags every
@@ -120,89 +57,7 @@ function followSystemDefault() {
   audioApi()?.ClearDefaultDeviceOverride(OUTPUT);
 }
 
-/** Next output in name order. Deliberately the unpinned order: pinning the
- *  active device first would make "next" mean the first name in the list every
- *  time, and a third device would never come up. */
-async function cycleOutput(): Promise<AudioDevice | null> {
-  const { devices, activeId } = await readOutputs();
-  if (devices.length < 2) return null;
-  const index = devices.findIndex((d) => d.id === activeId);
-  const next = devices[(index + 1) % devices.length];
-  switchTo(next.id);
-  return next;
-}
-
-// A single button would fire every time it is pressed for its normal purpose.
-const MIN_COMBO = 2;
-
-// EGamepadButton, read out of Steam's bundle. Unknown ids show as BTN<n>: capture
-// makes the name cosmetic, and a wrong guess would be worse than a raw number.
-// 20-23 are direction events, and Steam merges the D-pad and the left stick into
-// them -- the two cannot be told apart, so they share one label.
-const BUTTON_NAMES: Record<number, string> = {
-  0: "A", 1: "B", 2: "X", 3: "Y",
-  4: "D-Up", 5: "D-Right", 6: "D-Down", 7: "D-Left",
-  8: "Menu", 9: "View",
-  20: "Up", 21: "Down", 22: "Left", 23: "Right",
-  28: "LT", 29: "RT", 30: "L1", 31: "R1",
-  32: "L4", 33: "R4", 34: "Steam", 35: "Select", 36: "Start",
-  37: "L-Pad", 39: "R-Pad", 44: "L5", 45: "R5",
-};
-
-function comboLabel(buttons: number[]): string {
-  if (!buttons.length) return "Not set";
-  return buttons.map((b) => BUTTON_NAMES[b] || `BTN${b}`).join(" + ");
-}
-
-// The A press that clicks "record" arrives AFTER capture starts, so without a
-// guard it would record itself and close the capture on its own. Two protections,
-// both learned from the Steamcord plugin, which hit this as a user-reported bug:
-// a grace window that ignores the click's own events, and excluding anything
-// already held when capture began, for when A's press is processed first instead.
-const CAPTURE_GRACE_MS = 250;
-
-// Recording has to end on its own if the buttons never come. Closing the Quick
-// Access Menu with the ... button does not reach the input stream, so without a
-// deadline an abandoned capture would sit armed and swallow the next two buttons
-// pressed together in a game, overwriting the saved combo with them. Measured
-// from the last input rather than from the start, so a long hold is never cut
-// off mid-combo.
-const CAPTURE_TIMEOUT_MS = 10000;
-
-const held = new Set<number>();
-const captured = new Set<number>();
-const capturePreHeld = new Set<number>();
-let captureStart = 0;
-let config: Shortcut = { enabled: false, buttons: [] };
-let capture: ((buttons: number[]) => void) | null = null;
-let captureTimer = 0;
-let captureExpire: (() => void) | null = null;
-
-/** Disarm recording. The one place that clears it, so no path can leave the
- *  capture hook live with the panel gone. */
-function endCapture() {
-  capture = null;
-  captureExpire = null;
-  captured.clear();
-  capturePreHeld.clear();
-  window.clearTimeout(captureTimer);
-  captureTimer = 0;
-}
-
-function armCaptureTimeout() {
-  window.clearTimeout(captureTimer);
-  captureTimer = window.setTimeout(() => {
-    const expired = captureExpire;
-    endCapture();
-    expired?.();
-  }, CAPTURE_TIMEOUT_MS);
-}
-
-// Latched so holding the combo fires once, on the press that completes it,
-// instead of repeating for every further button that happens to go down.
-let comboHeld = false;
-
-let inputReg: any = null;
+const shortcut = createShortcut();
 
 // Measured on current builds: RegisterForDeviceAdded and RegisterForDeviceRemoved
 // return nothing at all, so there is no handle to unregister with and the panel
@@ -258,52 +113,21 @@ function notify(body: string) {
   lastToast = toaster.toast({ title: TOAST_TITLE, body });
 }
 
-async function fire() {
+async function cycle() {
   try {
-    const next = await cycleOutput();
+    const { next } = await readOutputs();
+    if (next) switchTo(next.id);
     notify(next ? displayName(next) : "Only one output available.");
   } catch {
     notify("Switch failed.");
   }
 }
 
-function onButton(button: number, pressed: boolean) {
-  if (pressed) held.add(button);
-  else held.delete(button);
-
-  if (capture) {
-    armCaptureTimeout();
-    if (pressed) {
-      if (Date.now() - captureStart < CAPTURE_GRACE_MS || capturePreHeld.has(button)) {
-        capturePreHeld.add(button);
-      } else {
-        captured.add(button);
-      }
-    } else {
-      // Released means no longer excluded: the same button can then be recorded.
-      capturePreHeld.delete(button);
-      if (captured.size && held.size === 0) {
-        const done = capture;
-        const buttons = [...captured].sort((a, b) => a - b);
-        endCapture();
-        done(buttons);
-      }
-    }
-    return;
-  }
-
-  const combo = config.buttons;
-  const active =
-    config.enabled && combo.length >= MIN_COMBO && combo.every((b) => held.has(b));
-
-  if (active && !comboHeld) fire();
-  comboHeld = active;
-}
+let inputReg: any = null;
 
 function listen() {
   drop(inputReg);
-  held.clear();
-  comboHeld = false;
+  shortcut.reset();
 
   const Input = (window as any).SteamClient?.Input;
 
@@ -312,7 +136,7 @@ function listen() {
   inputReg = Input?.RegisterForControllerInputMessages?.(
     (_index: number, button: number, pressed: boolean) => {
       try {
-        onButton(button, !!pressed);
+        shortcut.button(button, !!pressed);
       } catch (e) {
         console.warn("[AudioOutputSwitcher] button handler failed:", e);
       }
@@ -351,11 +175,10 @@ function SpeakerIcon() {
 }
 
 function Content() {
-  const [outputs, setOutputs] = useState<Outputs>({ devices: [], activeId: -1, overrideId: -1 });
+  const [outputs, setOutputs] = useState(() => outputList(undefined));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [shortcut, setShortcut] = useState<Shortcut>(config);
-  const [capturing, setCapturing] = useState(false);
+  const [binding, setBinding] = useState(() => shortcut.state());
 
   const refresh = async () => {
     try {
@@ -368,55 +191,35 @@ function Content() {
 
   useEffect(() => {
     refresh();
-    setShortcut(config);
+    setBinding(shortcut.state());
     // A wireless headset powering off is an event, not something to poll for:
     // Steam says so directly, so the panel reacts at once instead of up to four
     // seconds later.
-    const unsubscribe = onDevicesChanged(refresh);
+    const unsubscribeDevices = onDevicesChanged(refresh);
+    const unsubscribeShortcut = shortcut.subscribe((event) => {
+      setBinding(shortcut.state());
+      if (event.type === "tooShort") setError(`Hold at least ${MIN_COMBO} buttons at once.`);
+      if (event.type === "expired") setError("Nothing recorded. Hold the buttons together, then let go.");
+      if (event.type === "config") {
+        setError("");
+        // Saved from here, not from the plugin: every change to the binding is
+        // made in this panel, and a failure needs somewhere to show.
+        saveShortcut(event.config.enabled, event.config.buttons).catch(() =>
+          setError("Could not save the shortcut."),
+        );
+      }
+    });
     return () => {
-      unsubscribe();
-      // The panel can go away mid-recording, and the capture hook is a module
-      // global, so it would otherwise outlive the component. Leaving the plugin
-      // page unmounts and lands here; the deadline in armCaptureTimeout covers
-      // anything that does not.
-      endCapture();
+      unsubscribeDevices();
+      unsubscribeShortcut();
+      // The panel can go away mid-recording, and an armed capture would outlive
+      // it. Leaving the plugin page unmounts and lands here; the capture deadline
+      // covers anything that does not.
+      shortcut.cancelCapture();
     };
   }, []);
 
-  const persist = async (next: Shortcut) => {
-    config = next;
-    setShortcut(next);
-    try {
-      await saveShortcut(next.enabled, next.buttons);
-    } catch {
-      setError("Could not save the shortcut.");
-    }
-  };
-
-  const startCapture = () => {
-    endCapture();
-    held.forEach((b) => capturePreHeld.add(b));
-    captureStart = Date.now();
-    setCapturing(true);
-    captureExpire = () => {
-      setCapturing(false);
-      setError("Nothing recorded. Hold the buttons together, then let go.");
-    };
-    armCaptureTimeout();
-    capture = (buttons) => {
-      setCapturing(false);
-      // Too short a combo would fire during ordinary play, so refuse it rather
-      // than saving something that turns the shortcut into a nuisance.
-      if (buttons.length < MIN_COMBO) {
-        setError(`Hold at least ${MIN_COMBO} buttons at once.`);
-        return;
-      }
-      setError("");
-      persist({ ...config, buttons });
-    };
-  };
-
-  const pick = async (device: AudioDevice) => {
+  const pick = async (device: Output) => {
     setBusy(true);
     try {
       switchTo(device.id);
@@ -441,35 +244,28 @@ function Content() {
     }
   };
 
-  // Pinned here rather than in readOutputs so the shortcut keeps cycling through
-  // a stable name-ordered list; see cycleOutput.
-  const listed = [
-    ...outputs.devices.filter((d) => d.id === outputs.activeId),
-    ...outputs.devices.filter((d) => d.id !== outputs.activeId),
-  ];
-
-  const ready = shortcut.buttons.length >= MIN_COMBO;
+  const { config, capturing, ready } = binding;
 
   return (
     <>
       <PanelSection title="Output Device">
-        {listed.map((device) => (
+        {outputs.shown.map((device) => (
           <PanelSectionRow key={device.id}>
             <ButtonItem
               layout="below"
-              disabled={busy || device.id === outputs.activeId}
+              disabled={busy || device === outputs.active}
               onClick={() => pick(device)}
             >
-              {(device.id === outputs.activeId ? "●  " : "") + displayName(device)}
+              {(device === outputs.active ? "●  " : "") + displayName(device)}
             </ButtonItem>
           </PanelSectionRow>
         ))}
-        {outputs.devices.length === 0 && (
+        {outputs.shown.length === 0 && (
           <PanelSectionRow>
             <div style={{ opacity: 0.6 }}>No outputs found.</div>
           </PanelSectionRow>
         )}
-        {outputs.devices.length === 1 && (
+        {outputs.shown.length === 1 && (
           <PanelSectionRow>
             <div style={{ opacity: 0.6, fontSize: "0.8em" }}>
               Only one output right now. Connect a headset, dock or TV and it appears
@@ -479,7 +275,7 @@ function Content() {
             </div>
           </PanelSectionRow>
         )}
-        {outputs.overrideId !== -1 && (
+        {outputs.overridden && (
           <PanelSectionRow>
             <ButtonItem layout="below" disabled={busy} onClick={useSystemDefault}>
               Follow system default
@@ -499,26 +295,22 @@ function Content() {
             label="Cycle output with a button combo"
             description={
               ready
-                ? `Press ${comboLabel(shortcut.buttons)} together, anywhere, even in a game.`
+                ? `Press ${comboLabel(config.buttons)} together, anywhere, even in a game.`
                 : `Set a combo of at least ${MIN_COMBO} buttons first.`
             }
-            checked={shortcut.enabled}
+            checked={config.enabled}
             disabled={!ready}
-            onChange={(value: boolean) => persist({ ...config, enabled: value })}
+            onChange={(value: boolean) => shortcut.setEnabled(value)}
           />
         </PanelSectionRow>
         <PanelSectionRow>
-          <ButtonItem layout="below" disabled={capturing} onClick={startCapture}>
-            {capturing ? "Hold the buttons, then let go" : comboLabel(shortcut.buttons)}
+          <ButtonItem layout="below" disabled={capturing} onClick={() => shortcut.startCapture()}>
+            {capturing ? "Hold the buttons, then let go" : comboLabel(config.buttons)}
           </ButtonItem>
         </PanelSectionRow>
-        {shortcut.buttons.length > 0 && (
+        {config.buttons.length > 0 && (
           <PanelSectionRow>
-            <ButtonItem
-              layout="below"
-              disabled={capturing}
-              onClick={() => persist({ enabled: false, buttons: [] })}
-            >
+            <ButtonItem layout="below" disabled={capturing} onClick={() => shortcut.clear()}>
               Clear shortcut
             </ButtonItem>
           </PanelSectionRow>
@@ -540,12 +332,16 @@ export default definePlugin(() => {
   // closed, in a game.
   getShortcut()
     .then((stored) => {
-      config = {
+      shortcut.load({
         enabled: !!stored?.enabled,
         buttons: Array.isArray(stored?.buttons) ? stored.buttons : [],
-      };
+      });
     })
     .catch(() => {});
+
+  const unsubscribe = shortcut.subscribe((event) => {
+    if (event.type === "fire") cycle();
+  });
 
   listen();
   watchForResume();
@@ -558,6 +354,8 @@ export default definePlugin(() => {
     icon: <SpeakerIcon />,
     onDismount() {
       window.clearInterval(resumeTimer);
+      unsubscribe();
+      shortcut.reset();
       drop(inputReg);
       inputReg = null;
     },

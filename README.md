@@ -114,6 +114,16 @@ pnpm run build
 
 Outputs `dist/index.js`.
 
+```bash
+pnpm test
+```
+
+The device rules (`src/outputs.ts`) and the combo shortcut (`src/shortcut.ts`)
+import nothing from Steam or Decky, so the tests run without either. They use
+real `GetDevices()` snapshots in `test/fixtures/`. A new kind of hardware
+becomes a new fixture. `src/index.tsx` holds the panel and the Steam calls. See
+`GLOSSARY.md` for the terms and `docs/adr/` for decisions.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Retains the BSD-3-Clause license of the [decky-plugin-template](https://github.com/SteamDeckHomebrew/decky-plugin-template) it derives from.

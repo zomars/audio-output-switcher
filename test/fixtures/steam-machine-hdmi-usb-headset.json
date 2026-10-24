@@ -1,0 +1,57 @@
+{
+  "activeOutputDeviceId": 46,
+  "activeInputDeviceId": 47,
+  "overrideOutputDeviceId": 46,
+  "overrideInputDeviceId": -1,
+  "vecDevices": [
+    {
+      "id": 46,
+      "sName": "HDMI / DisplayPort",
+      "bHasOutput": true,
+      "bIsDefaultOutputDevice": true,
+      "currentConfig": {
+        "eConfig": 1,
+        "sDescription": "Digital Stereo (HDMI) Output",
+        "nChannels": 2
+      },
+      "availableConfigs": [
+        1,
+        4
+      ],
+      "flOutputVolume": 1,
+      "bHasInput": false,
+      "bIsDefaultInputDevice": false,
+      "flInputVolume": 0.333709716796875,
+      "eConnectorType": 10,
+      "eBus": 1,
+      "bIsController": false,
+      "bSupportsHdmiCec": false,
+      "bHdmiCecEnabled": false,
+      "bHdmiCecActive": true
+    },
+    {
+      "id": 47,
+      "sName": "Razer Barracuda X 2.4",
+      "bHasOutput": true,
+      "bIsDefaultOutputDevice": false,
+      "currentConfig": {
+        "eConfig": 1,
+        "sDescription": "Analog Stereo Output + Mono Input",
+        "nChannels": 2
+      },
+      "availableConfigs": [
+        1
+      ],
+      "flOutputVolume": 1,
+      "bHasInput": true,
+      "bIsDefaultInputDevice": true,
+      "flInputVolume": 1,
+      "eConnectorType": 22,
+      "eBus": 2,
+      "bIsController": false,
+      "bSupportsHdmiCec": false,
+      "bHdmiCecEnabled": false,
+      "bHdmiCecActive": false
+    }
+  ]
+}

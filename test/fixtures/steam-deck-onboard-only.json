@@ -1,0 +1,50 @@
+{
+  "activeOutputDeviceId": 51,
+  "activeInputDeviceId": 51,
+  "overrideOutputDeviceId": -1,
+  "overrideInputDeviceId": -1,
+  "vecDevices": [
+    {
+      "id": 50,
+      "sName": "Rembrandt Radeon High Definition Audio Controller",
+      "bHasOutput": false,
+      "bIsDefaultOutputDevice": false,
+      "currentConfig": {
+        "eConfig": 0,
+        "sDescription": "Off",
+        "nChannels": 0
+      },
+      "availableConfigs": [],
+      "flOutputVolume": 0,
+      "bHasInput": false,
+      "bIsDefaultInputDevice": false,
+      "flInputVolume": 22875.19921875,
+      "eConnectorType": 0,
+      "eBus": 1,
+      "bSupportsHdmiCec": false,
+      "bHdmiCecEnabled": false,
+      "bHdmiCecActive": false
+    },
+    {
+      "id": 51,
+      "sName": "ACP/ACP3X/ACP6x Audio Coprocessor",
+      "bHasOutput": true,
+      "bIsDefaultOutputDevice": true,
+      "currentConfig": {
+        "eConfig": 0,
+        "sDescription": "Default (Headphones, Internal Mic, Speaker)",
+        "nChannels": 2
+      },
+      "availableConfigs": [],
+      "flOutputVolume": 0.47918701171875,
+      "bHasInput": true,
+      "bIsDefaultInputDevice": true,
+      "flInputVolume": 1,
+      "eConnectorType": 2,
+      "eBus": 1,
+      "bSupportsHdmiCec": false,
+      "bHdmiCecEnabled": false,
+      "bHdmiCecActive": false
+    }
+  ]
+}
