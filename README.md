@@ -13,6 +13,7 @@ It is for setups with somewhere to switch **to**: a dock, a TV, a headset, a USB
 - Lists the available audio outputs, active device marked and pinned to the top
 - Switches the default sink **and moves already-playing streams**, so audio follows immediately instead of only affecting the next sound
 - Device arrival and removal are events, not polls, so a wireless headset connecting or powering off shows up without reloading the panel
+- **HDMI monitor picker**: with two or more screens connected to one HDMI card (a dock with two monitors, for example), choose which one plays the sound. Steam shows them all as one HDMI output
 - Optional **controller shortcut**: a button combo of your choice cycles to the next output, without opening the panel or leaving the game
 
 ## Install
@@ -65,6 +66,20 @@ shortcut cycles through stays in name order. Pinning it in both places would mak
 
 `main.py` therefore stores the shortcut binding and nothing else — the audio path
 has no Python in it at all.
+
+### HDMI monitors
+
+Steam presents a whole HDMI card as one device, and its API has no call to
+choose the card's port. The port is a card profile (`output:hdmi-stereo`,
+`output:hdmi-stereo-extra1`, …), so `main.py` reads and sets it with `pactl`.
+The panel lists one row per connected port, named after the monitor's EDID, and
+only when a card has two or more. A switch keeps the stereo or surround choice
+when the other port offers it.
+
+A new profile means a new sink, and PipeWire then hands the default to whatever
+it ranks first; measured on a Steam Machine, the TV lost it to a USB headset. So
+if the card held the default before, the backend makes the new sink the default
+again. Each switch logs the default output before and after.
 
 ### The shortcut
 

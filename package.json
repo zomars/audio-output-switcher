@@ -1,6 +1,6 @@
 {
   "name": "audio-output-switcher",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Switch the default audio output device from the Quick Access Menu.",
   "type": "module",
   "packageManager": "pnpm@9.15.9",

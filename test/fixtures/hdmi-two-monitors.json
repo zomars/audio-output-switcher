@@ -1,0 +1,68 @@
+{
+  "_synthetic": "zMachine's card with a second monitor on hdmi-output-1 (port 1 marked available, profiles available, EDID name made up).",
+  "cards": [
+    {
+      "name": "alsa_card.pci-0000_03_00.1",
+      "active_profile": "output:hdmi-stereo",
+      "profiles": {
+        "off": true,
+        "output:hdmi-stereo": true,
+        "output:hdmi-stereo-extra1": true,
+        "output:hdmi-stereo-extra2": false,
+        "output:hdmi-stereo-extra3": false,
+        "output:hdmi-surround": false,
+        "output:hdmi-surround-extra1": true,
+        "output:hdmi-surround71-extra1": true,
+        "output:hdmi-surround-extra2": false,
+        "output:hdmi-surround71-extra2": false,
+        "output:hdmi-surround-extra3": false,
+        "output:hdmi-surround71-extra3": false,
+        "output:hdmi-ac3-surround": true,
+        "output:hdmi-ac3-surround-extra1": true,
+        "output:hdmi-ac3-surround-extra2": false,
+        "output:hdmi-ac3-surround-extra3": false
+      },
+      "ports": {
+        "hdmi-output-0": {
+          "availability": "available",
+          "profiles": [
+            "output:hdmi-stereo",
+            "output:hdmi-surround",
+            "output:hdmi-ac3-surround"
+          ],
+          "monitor": "Sceptre N55"
+        },
+        "hdmi-output-1": {
+          "availability": "available",
+          "profiles": [
+            "output:hdmi-stereo-extra1",
+            "output:hdmi-surround-extra1",
+            "output:hdmi-surround71-extra1",
+            "output:hdmi-ac3-surround-extra1"
+          ],
+          "monitor": "DELL P2419H"
+        },
+        "hdmi-output-2": {
+          "availability": "not available",
+          "profiles": [
+            "output:hdmi-stereo-extra2",
+            "output:hdmi-surround-extra2",
+            "output:hdmi-surround71-extra2",
+            "output:hdmi-ac3-surround-extra2"
+          ],
+          "monitor": null
+        },
+        "hdmi-output-3": {
+          "availability": "not available",
+          "profiles": [
+            "output:hdmi-stereo-extra3",
+            "output:hdmi-surround-extra3",
+            "output:hdmi-surround71-extra3",
+            "output:hdmi-ac3-surround-extra3"
+          ],
+          "monitor": null
+        }
+      }
+    }
+  ]
+}

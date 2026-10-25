@@ -9,11 +9,14 @@ import {
 import { callable, definePlugin, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 
+import { monitorChoices, type HdmiCard, type MonitorChoice } from "./hdmi";
 import { outputList, type DevicesSnapshot, type Output } from "./outputs";
 import { MIN_COMBO, comboLabel, createShortcut, type Shortcut } from "./shortcut";
 
 const getShortcut = callable<[], Shortcut>("get_shortcut");
 const saveShortcut = callable<[boolean, number[]], { ok: boolean }>("set_shortcut");
+const hdmiCards = callable<[], HdmiCard[]>("hdmi_cards");
+const setHdmiProfile = callable<[string, string], { ok: boolean }>("set_hdmi_profile");
 
 // EAudioDirection.Output, read out of Steam's bundle.
 const OUTPUT = 1;
@@ -176,6 +179,7 @@ function SpeakerIcon() {
 
 function Content() {
   const [outputs, setOutputs] = useState(() => outputList(undefined));
+  const [monitors, setMonitors] = useState<MonitorChoice[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [binding, setBinding] = useState(() => shortcut.state());
@@ -186,6 +190,12 @@ function Content() {
       setError("");
     } catch {
       setError("Could not read audio devices.");
+    }
+    // Optional: without pactl the section just stays hidden.
+    try {
+      setMonitors(monitorChoices(await hdmiCards()));
+    } catch {
+      setMonitors([]);
     }
   };
 
@@ -231,6 +241,23 @@ function Content() {
       setError("Switch failed.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Steam has no call for this: it shows the whole HDMI card as one output.
+  // The backend sets the card profile through pactl, and hands the default back
+  // to the card if it had it, since a new profile means a new sink.
+  const pickMonitor = async (monitor: MonitorChoice) => {
+    setBusy(true);
+    try {
+      const result = await setHdmiProfile(monitor.card, monitor.profile);
+      if (!result?.ok) throw new Error("set_hdmi_profile failed");
+      notify(monitor.label);
+    } catch {
+      setError("Could not switch the HDMI monitor.");
+    } finally {
+      setBusy(false);
+      window.setTimeout(refresh, 400);
     }
   };
 
@@ -288,6 +315,28 @@ function Content() {
           </PanelSectionRow>
         )}
       </PanelSection>
+
+      {monitors.length > 0 && (
+        <PanelSection title="HDMI Monitor">
+          {monitors.map((monitor) => (
+            <PanelSectionRow key={monitor.card + monitor.port}>
+              <ButtonItem
+                layout="below"
+                disabled={busy || monitor.active}
+                onClick={() => pickMonitor(monitor)}
+              >
+                {(monitor.active ? "●  " : "") + monitor.label}
+              </ButtonItem>
+            </PanelSectionRow>
+          ))}
+          <PanelSectionRow>
+            <div style={{ opacity: 0.6, fontSize: "0.8em" }}>
+              Which connected screen plays HDMI audio. Steam shows them all as one
+              HDMI output.
+            </div>
+          </PanelSectionRow>
+        </PanelSection>
+      )}
 
       <PanelSection title="Shortcut">
         <PanelSectionRow>
